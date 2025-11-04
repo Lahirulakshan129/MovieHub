@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title> Movies - Page {{ page }}</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <div class="logo">
+          <h1>
+            <a href="/" style="color: #e91e63; text-decoration: none">
+              <span style="color: #ff9800">MOVIE</span> HUB
+            </a>
+            <span
+              class="page-number"
+              style="margin-left: 8px; color: #aaa; font-size: 16px"
+            >
+              • Page {{ page }}
+            </span>
+          </h1>
+        </div>
+        <div class="controls">
+          <button id="refresh-btn">Refresh</button>
+          <input type="text" id="search" placeholder="Search movies..." />
+          <select id="sort">
+            <option value="seeds">Seeds</option>
+            <option value="title">Title</option>
+          </select>
+        </div>
+      </header>
+
+      <div id="status" class="status"></div>
+      <div id="next-status" class="status small"></div>
+      <div id="grid" class="grid"></div>
+
+      <div class="pagination">
+        <button id="prev">Prev</button>
+        <span id="page-info">Page {{ page }}</span>
+        <button id="next">Next</button>
+      </div>
+    </div>
+
+    <script>
+                let movies = [];
+                let currentPage = {{ page }};
+                let isLoading = false;
+
+                async function load(page = currentPage) {
+                  if (isLoading) return;
+                  isLoading = true;
+                  showStatus(`Loading page ${page}...`, 'info');
+
+                  const res = await fetch(`/api/movies?page=${page}`);
+                  const data = await res.json();
+
+                  movies = data.movies;
+                  render();
+
+                  if (data.status === "running") {
+                    showStatus(`Scraping page ${page}...`, 'scraping');
+                    pollUntilDone(page);
+                  } else {
+                    showStatus(`Page ${page} ready (${data.count} movies)`, 'success');
+                  }
+
+                  const nextPage = page + 1;
+                  if (data.next_status === "running") {
+                    showNextStatus(`Fetching page ${nextPage} in background...`);
+                  } else if (data.next_status === "done") {
+                    showNextStatus(`Page ${nextPage} ready! Click Next`);
+                  } else {
+                    showNextStatus(``);
+                  }
+
+                  updatePagination(page);
+                  isLoading = false;
+                }
+
+                function pollUntilDone(page) {
+                  const interval = setInterval(async () => {
+                    const res = await fetch(`/api/movies?page=${page}`);
+                    const data = await res.json();
+                    if (data.status !== "running") {
+                      clearInterval(interval);
+                      movies = data.movies;
+                      render();
+                      showStatus(`Page ${page} ready! (${data.count} movies)`, 'success');
+                    }
+                  }, 3000);
+                }
+
+                function render() {
+                  const search = document.getElementById('search').value.toLowerCase();
+                  const sort = document.getElementById('sort').value;
+                  let filtered = movies.filter(m => m.title.toLowerCase().includes(search));
+
+                  filtered.sort((a, b) => {
+                    if (sort === 'seeds') return b.seeds - a.seeds;
+                    return a.title.localeCompare(b.title);
+                  });
+
+                  const placeholder = 'https://via.placeholder.com/180x260/1e1e1e/ffffff?text=No+Poster';
+
+                  document.getElementById('grid').innerHTML = filtered.map(m => `
+                    <div class="card">
+                      <img
+              src="${m.poster}"
+              onerror="this.onerror=null; this.src='https://via.placeholder.com/300x450/333/fff?text=No+Image'"
+              loading="lazy"
+              alt="${m.title}"
+            >
+                      <div class="info">
+                        <h4 title="${m.title}">${m.title}</h4>
+                        <div><strong>${m.size}</strong> • ${m.seeds} seeds</div>
+                      </div>
+                      <div class="actions">
+                        ${m.stream ? `<a href="/player?stream=${encodeURIComponent(m.stream)}&title=${encodeURIComponent(m.title)}" class="play">PLAY</a>` : ''}
+                        <button class="download" onclick="download('${m.magnet}')">
+                          ${m.magnet ? 'DOWNLOAD' : 'NO LINK'}
+                        </button>
+                      </div>
+                    </div>
+                  `).join('');
+                }
+
+                function download(magnet) {
+                  if (!magnet) return alert("No magnet");
+                  window.location.href = magnet;
+                }
+
+                function showStatus(msg, type) {
+                  const el = document.getElementById('status');
+                  el.textContent = msg;
+                  el.className = 'status ' + type;
+                }
+
+                function showNextStatus(msg) {
+                  const el = document.getElementById('next-status');
+                  el.textContent = msg;
+                  el.style.display = msg ? 'block' : 'none';
+                }
+
+                function updatePagination(page) {
+        currentPage = page;
+
+        
+        const pageNumber = document.querySelector('.page-number');
+        if (pageNumber) {
+          pageNumber.textContent = `• Page ${page}`;
+        }
+
+       
+        document.getElementById('page-info').textContent = `Page ${page}`;
+
+        
+        history.pushState({page: page}, '', `/?page=${page}`);
+
+        
+        document.getElementById('prev').onclick = () => load(page - 1);
+        document.getElementById('next').onclick = () => load(page + 1);
+        document.getElementById('prev').disabled = page === 1;
+
+        document.getElementById('refresh-btn').onclick = () => {
+          fetch(`/api/refresh/${page}`).then(() => load(page));
+        };
+      }
+
+                document.getElementById('search').oninput = render;
+                document.getElementById('sort').onchange = render;
+
+                load();
+    </script>
+  </body>
+</html>
